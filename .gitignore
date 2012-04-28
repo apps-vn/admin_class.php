@@ -1,12 +1,5 @@
 <?php
-  /**
-   * Android Class
-   *
-   * @package CMS Pro
-   * @author wojoscripts.com
-   * @copyright 2011
-   * @version $Id: class_admin.php, v2.00 2011-10-01 16:10:25 gewa Exp $
-   */
+
   
   if (!defined("_VALID_PHP"))
       die('Direct access to this location is not allowed.');
