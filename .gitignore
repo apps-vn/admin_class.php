@@ -1,5 +1,972 @@
-tmp/*
-config/database.php
-app/tmp/*
-app/config/database.php
-!empty
+<?php
+  /**
+   * Android Class
+   *
+   * @package CMS Pro
+   * @author wojoscripts.com
+   * @copyright 2011
+   * @version $Id: class_admin.php, v2.00 2011-10-01 16:10:25 gewa Exp $
+   */
+  
+  if (!defined("_VALID_PHP"))
+      die('Direct access to this location is not allowed.');
+  
+  class Android
+  {
+    
+	  private $mTable = "mod_android";
+	  private $cTable = "mod_android_config";
+	  private $ctTable = "mod_android_categories";
+	  private $trTable = "mod_android_transactions";
+	  private $xTable = "mod_android_cart";
+	  public $digiid = null;
+	  public $cid = null;
+	  public $imagepath = "modules/android/dataimages/";
+	  public $slug = null;
+
+
+      /**
+       * Android::__construct()
+       * 
+       * @return
+       */
+      function __construct($loadconfig = true)
+      {
+          $this->getItemId();
+		  $this->getCatId();
+		  ($loadconfig) ? $this->getConfig() : null;
+		  $this->getProductSlug();
+      }
+
+	  /**
+	   * Android::getProductSlug()
+	   * 
+	   * @return
+	   */
+	  private function getProductSlug()
+	  {
+	  	  global $core;
+		  
+		  if (isset($_GET['productname'])) {
+			  $this->slug = cleanSanitize($_GET['productname'],100);
+			  return $this->slug;
+		  }
+	  }
+	  
+	  /**
+	   * Android::getItemId()
+	   * 
+	   * @return
+	   */
+	  private function getItemId()
+	  {
+	  	  global $core;
+		  if (isset($_GET['digiid'])) {
+			  $digiid = (is_numeric($_GET['digiid']) && $_GET['digiid'] > -1) ? intval($_GET['digiid']) : false;
+			  $digiid = sanitize($digiid);
+			  
+			  if ($digiid == false) {
+				  $core->error("You have selected an Invalid ItemId","Android::getItemId()");
+			  } else
+				  return $this->digiid = $digiid;
+		  }
+	  }
+
+	  /**
+	   * Android::getCatId()
+	   * 
+	   * @return
+	   */
+	  private function getCatId()
+	  {
+	  	  global $core;
+		  if (isset($_GET['cid'])) {
+			  $cid = (is_numeric($_GET['cid']) && $_GET['cid'] > -1) ? intval($_GET['cid']) : false;
+			  $cid = sanitize($cid);
+			  
+			  if ($cid == false) {
+				  $core->error("You have selected an Invalid CatId","Android::getCatId()");
+			  } else
+				  return $this->cid = $cid;
+		  }
+	  }
+	  	  
+	  /**
+	   * Android::getConfig()
+	   * 
+	   * @return
+	   */
+	  private function getConfig()
+	  {
+		  global $db;
+		  $sql = "SELECT * FROM " . $this->cTable;
+          $row = $db->first($sql);
+
+		  $this->thumb_w = $row['thumb_w'];
+		  $this->thumb_h = $row['thumb_h'];  
+		  $this->filedir = $row['filedir'];
+		  $this->allow_free = $row['allow_free'];
+		  $this->latest = $row['latest'];
+		  $this->cols = $row['cols'];
+		  $this->layout = $row['layout'];
+		  $this->utl_time = $row['utl_time'];
+		  $this->template = $row['template'];
+		  $this->ver = $row['ver'];
+	  }
+
+	  /**
+	   * Android::processConfig()
+	   * 
+	   * @return
+	   */
+	  public function processConfig()
+	  {
+		  global $db, $core, $wojosec;
+		  
+		  if (empty($_POST['thumb_w']) or empty($_POST['thumb_h']))
+			  $core->msgs['thumb'] = MOD_DS_THUMB_W_H_R;
+
+		  if (empty($_POST['filedir']))
+			  $core->msgs['filedir'] = MOD_DS_FILEDIR_R;
+			  			  		  			  			  		  
+		  if (empty($core->msgs)) {
+			  $data = array(
+					  'thumb_w' => intval($_POST['thumb_w']), 
+					  'thumb_h' => intval($_POST['thumb_h']),
+					  'filedir' => trim($_POST['filedir']), 
+					  'allow_free' => sanitize($_POST['allow_free']),
+					  'latest' => empty($_POST['latest']) ? 10 : intval($_POST['latest']),
+					  'cols' => empty($_POST['cols']) ? 4 : intval($_POST['cols']),
+					  'layout' => intval($_POST['layout']),
+					  'utl_time' => empty($_POST['utl_time']) ? 24 : intval($_POST['utl_time']),
+					  'template' => $_POST['template']
+			  );
+			  $db->update($this->cTable, $data) ;
+			  ($db->affected()) ? $wojosec->writeLog(MOD_DS_CGFUPDATED, "", "no", "module") . $core->msgOk(MOD_DS_CGFUPDATED) :  $core->msgAlert(_SYSTEM_PROCCESS);
+		  } else
+			  print $core->msgStatus();
+	  }
+	  
+	  /**
+	   * Android::getProducts()
+	   * 
+	   * @return
+	   */
+	  public function getProducts()
+	  {
+		  global $db, $core, $pager;
+		  
+		  require_once(WOJOLITE . "lib/class_paginate.php");
+          $pager = new Paginator();
+		  
+		  if($this->cid) {
+			  $where = "WHERE p.cid = '".$this->cid."'";
+			  $counter = countEntries($this->mTable,'cid',$this->cid);
+		  } else {
+			  $where = null;
+			  $counter = countEntries($this->mTable);
+			  
+		  }
+
+          $pager->items_total = $counter;
+          $pager->default_ipp = $core->perpage;
+          $pager->paginate();
+          
+          if ($counter == 0) {
+              $pager->limit = null;
+          }
+		  
+		  $sql = "SELECT p.*, c.id as cid, c.name{$core->dblang} as catname,"
+		  . "\n (SELECT COUNT(pid) FROM " . $this->trTable . " WHERE pid = p.id) as sales"
+		  . "\n FROM " . $this->mTable . " as p" 
+		  . "\n LEFT JOIN " . $this->ctTable . " as c ON c.id = p.cid" 
+		  . "\n $where"
+		  . "\n ORDER BY p.cid, p.title{$core->dblang}" . $pager->limit;
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+
+	  /**
+	   * Android::processProduct()
+	   * 
+	   * @return
+	   */
+	  function processProduct()
+	  {
+		  global $db, $core, $wojosec;
+		  
+		  if (empty($_POST['title'.$core->dblang]))
+			  $core->msgs['title'] = MOD_DS_NAME_R;
+
+		  if (empty($_POST['cid']))
+			  $core->msgs['cid'] = MOD_DS_CATEGORY_R;
+
+		  if (empty($_POST['price']))
+			  $core->msgs['price'] = MOD_DS_PRODPRICE_R;
+			      		  
+		  if (!empty($_FILES['filename']['name'])) {
+			  if (!preg_match("/(\.zip|\.rar)$/i", $_FILES['filename']['name']))
+				  $core->msgs['filename'] = MOD_AM_FILE_ATT_R;
+		  }
+
+		  if (!empty($_FILES['thumb']['name'])) {
+			  if (!preg_match("/(\.jpg|\.png)$/i", $_FILES['thumb']['name']))
+				  $core->msgs['thumb'] = MOD_AM_IMAGE_R;
+		  }
+		  
+		  if (empty($core->msgs)) {
+			  $data = array(
+					'title'.$core->dblang => sanitize($_POST['title'.$core->dblang]), 
+					'slug' => (empty($_POST['slug'])) ? paranoia($_POST['title'.$core->dblang]) : paranoia($_POST['slug']),
+					'cid' => intval($_POST['cid']),
+					'price' => floatval($_POST['price']),
+					'token' => md5(time()),
+					'active' => intval($_POST['active']),
+					'body'.$core->dblang => $core->in_url($_POST['body'.$core->dblang]),
+					'metakey'.$core->dblang => sanitize($_POST['metakey'.$core->dblang]),
+					'metadesc'.$core->dblang => sanitize($_POST['metadesc'.$core->dblang])
+			  );
+
+			  if (!$this->digiid) {
+					$data['created'] = "NOW()";
+			  }			  
+
+			  if (isset($_POST['membership_id'])) {
+				  $mids = $_POST['membership_id'];
+				  $total = count($mids);
+				  $i = 1;
+				  if (is_array($mids)) {
+					  $midata = '';
+					  foreach ($mids as $mid) {
+						  if ($i == $total) {
+							  $midata .= $mid;
+						  } else
+							  $midata .= $mid . ",";
+						  $i++;
+					  }
+				  }
+				  $data['membership_id'] = $midata;
+			  } else
+				  $data['membership_id'] = 0;
+				  
+              // Procces Image
+			  $img = getValue("thumb",$this->mTable,"id = '".$this->digiid."'");
+			  if (!empty($_FILES['thumb']['name'])) {
+				  $imgdir = WOJOLITE . $this->imagepath;
+				  $newName = "IMG_" . randName();
+				  $ext = substr($_FILES['thumb']['name'], strrpos($_FILES['thumb']['name'], '.') + 1);
+				  $fullname = $imgdir . $newName.".".strtolower($ext);				  
+				  
+				  if ($img)
+					  @unlink($imgdir . $img);
+				  $res = move_uploaded_file($_FILES['thumb']['tmp_name'], $fullname);
+				  $data['thumb'] = $newName.".".strtolower($ext);	
+			  } else {
+				  $data['thumb'] = $img;
+			  }
+			  
+              // Procces File
+			  $file = getValue("filename",$this->mTable,"id = '".$this->digiid."'");
+			  if (!empty($_FILES['filename']['name'])) {
+				  $newName = "FILE_" . randName();
+				  $ext = substr($_FILES['filename']['name'], strrpos($_FILES['filename']['name'], '.') + 1);
+				  $fullname = $this->filedir . $newName.".".strtolower($ext);				  
+				  
+				  if ($file)
+					  @unlink($this->filedir . $file);
+				  $res = move_uploaded_file($_FILES['filename']['tmp_name'], $fullname);
+				  $data['filename'] = $newName.".".strtolower($ext);
+				  $data['filesize'] = filesize($fullname);	
+			  } else {
+				  $data['filename'] = $file;
+			  }
+			  
+			  
+			  ($this->digiid) ? $db->update($this->mTable, $data, "id='" . (int)$this->digiid . "'") : $db->insert($this->mTable, $data);
+			  $message = ($this->digiid) ? MOD_DS_PRODUPDATED : MOD_DS_PRODADDED;
+			  
+			  ($db->affected()) ? $wojosec->writeLog($message, "", "no", "module") . $core->msgOk($message) : $core->msgAlert(_SYSTEM_PROCCESS);
+			  
+		  } else
+			  print $core->msgStatus();
+	  }
+
+      /**
+       * Android::getProductTitle()
+       * 
+       * @return
+       */
+      public function getProductTitle()
+      {
+          global $db, $core;
+
+		  $sql = "SELECT title{$core->dblang}, metakey{$core->dblang}, metadesc{$core->dblang} FROM " . $this->mTable . " WHERE slug = '".$this->slug."'";
+          $row = $db->first($sql);
+		  
+		  return ($row) ? $row : 0;
+      }
+	  
+	  /**
+	   * Android::renderProducts()
+	   * 
+	   * @return
+	   */
+	  public function renderSingle()
+	  {
+		  global $db, $core;
+
+		  $sql = "SELECT *,title{$core->dblang} as ptitle FROM " . $this->mTable 
+		  . "\n WHERE slug = '" . $this->slug . "'"
+		  . "\n AND active = 1";
+          $row = $db->first($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+
+
+	  /**
+	   * Android::renderProducts()
+	   * 
+	   * @return
+	   */
+	  public function renderProducts()
+	  {
+		  global $db, $core;
+
+		  $sql = "SELECT p.*, c.id as cid, c.name{$core->dblang} as catname, p.title{$core->dblang} as ptitle,"
+		  . "\n DATE_FORMAT(p.created, '".$core->short_date."') as cdate"
+		  . "\n FROM " . $this->mTable . " as p" 
+		  . "\n LEFT JOIN " . $this->ctTable . " as c ON c.id = p.cid" 
+		  . "\n WHERE p.active = 1"
+		  . "\n ORDER BY p.created DESC"
+		  . "\n LIMIT " . $this->latest;
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+
+      /**
+       * Android::renderProductByCategory()
+       * 
+       * @param mixed $cid
+       * @return
+       */
+	  public function renderProductByCategory($cid)
+	  {
+		  global $db, $core;
+
+		  $sql = "SELECT p.*, p.title{$core->dblang} as ptitle,"
+		  . "\n DATE_FORMAT(p.created, '".$core->short_date."') as cdate"
+		  . "\n FROM " . $this->mTable . " as p" 
+		  . "\n LEFT JOIN " . $this->ctTable . " as c ON c.id = p.cid" 
+		  . "\n WHERE c.id = '" . $cid . "' AND p.active = 1"
+		  . "\n ORDER BY p.created DESC";
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+	  
+      /**
+       * Android::getPriceData()
+       * 
+       * @param mixed $id
+       * @param mixed $token
+       * @param mixed $price
+       * @return
+       */
+	  public function getPriceData($id, $token, $price)
+	  {
+		  global $core, $user;
+		  
+		  if($price == 0) {
+			  switch ($this->allow_free) {
+				  case "y":
+				    print '<a href="' . SITEURL . '/modules/android/download.php?free=' . $token . '"  class="download">' . MOD_DS_DOWNFREE . '</a>';
+				  break;
+
+				  case "n" and $user->logged_in :
+				    print '<a href="' . SITEURL . '/modules/android/download.php?free=' . $token . '" class="download">' . MOD_DS_DOWNFREE . '</a>';
+				  break;
+				  
+				  default:
+				  print MOD_DS_LOGIN_TO;
+				  break;
+				  
+			  }
+		  } else
+			  print '<a href="javascript:void(0);" id="list_' . $id . '" class="add-to-cart">' . MOD_DS_ADD_TO . ' | ' . $core->formatMoney($price). '</a>';
+	  }	
+
+      /**
+       * Android::getPriceMembershipData()
+       * 
+       * @param mixed $id
+       * @param mixed $token
+       * @param mixed $price
+       * @param mixed $memid
+       * @return
+       */
+	  public function getPriceMembershipData($id, $token, $price, $memid)
+	  {
+		  global $core, $user;
+
+  		  $m_arr = explode(",", $memid);
+		  reset($m_arr);
+		  
+		  if($user->logged_in and $user->validateMembership() and in_array($user->membership_id, $m_arr)) {
+			  print '<a href="' . SITEURL . '/modules/android/download.php?member=' . $token . '" class="mem-req tooltip" title="' . MOD_DS_MEMVALID . '">' . MOD_DS_DOWNMEM . '</a>';
+		  } else
+			  print '<a href="javascript:void(0);" id="list_' . $id . '" class="add-to-cart mem-req tooltip" title="' . MOD_DS_MEMREQ . '">' . MOD_DS_ADD_TO . ' | ' . $core->formatMoney($price). '</a>';
+	  }
+	  
+	  /**
+	   * Android::getSmallCart()
+	   * 
+	   * @return
+	   */
+	  public function getSmallCart()
+	  {
+		  global $db, $core, $content, $user;
+
+		  $sql = "SELECT SUM(price) as ptotal, COUNT(*) as itotal"
+		  . "\n FROM " . $this->xTable
+		  . "\n WHERE user_id = '" . $db->escape($user->sesid) . "'"
+		  . "\n GROUP BY user_id";
+          $row = $db->first($sql);
+		  
+		  if($row) {
+			  $curl = ($core->seo == 1) ? $core->site_url . '/android-checkout/' : $core->site_url . '/modules.php?module=android&amp;do=android-checkout';
+			 $itotal = $row['itotal'];
+			 $ptotal = $core->formatMoney($row['ptotal']);
+			  print MOD_DS_YOUHAVE . $itotal . MOD_DS_CITEMS . $ptotal.' <a href="' . $curl . '" id="check-out-cart" class="tooltip" title="' . MOD_DS_CHECKOUT . '"><img src="' . SITEURL. '/modules/android/images/basket.png"  alt=""/></a>
+			  <a href="javascript:void(0);" class="tooltip" id="rem-from-cart" title="' . MOD_DS_REMOVE . '"><img src="' . SITEURL. '/modules/android/images/remove.png" alt=""/></a>';
+		  } else {
+			   print MOD_DS_NOCART;
+		  }
+	  }	
+
+	  /**
+	   * Android::layoutSwitchList()
+	   * 
+	   * @return
+	   */
+	  public function layoutSwitchList()
+	  {
+		  $current = '';
+		  if (isset($_COOKIE['DIGIVIEW_CMSPRO']) && $_COOKIE['DIGIVIEW_CMSPRO'] == 'list') {
+			  $current = ' current';
+		  } elseif($this->layout == 0 && !isset($_COOKIE['DIGIVIEW_CMSPRO'])) {
+			  $current = ' current';
+		  }
+		  
+		  return $current;
+	  }	
+
+	  /**
+	   * Android::layoutSwitchGrid()
+	   * 
+	   * @return
+	   */
+	  public function layoutSwitchGrid()
+	  {
+		  $current = '';
+		  if (isset($_COOKIE['DIGIVIEW_CMSPRO']) && $_COOKIE['DIGIVIEW_CMSPRO'] == 'grid') {
+			  $current = ' current';
+		  } elseif($this->layout == 1 && !isset($_COOKIE['DIGIVIEW_CMSPRO'])) {
+			  $current = ' current';
+		  }
+		  
+		  return $current;
+	  }	
+	  	  	  	  	  	  
+	  /**
+	   * Android::getCategories()
+	   * 
+	   * @return
+	   */
+	  public function getCategories()
+	  {
+		  global $db;
+		  
+		  $sql = "SELECT * FROM " . $this->ctTable
+		  . "\n ORDER BY sorting";
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+
+	  /**
+	   * Android::processCategory()
+	   * 
+	   * @return
+	   */
+	  function processCategory()
+	  {
+		  global $db, $core, $wojosec;
+		  
+		  if (empty($_POST['name'.$core->dblang]))
+			  $core->msgs['name'] = MOD_DS_CATNAME_R2;
+		  
+		  if (empty($core->msgs)) {
+			  $data = array(
+					'name'.$core->dblang => sanitize($_POST['name'.$core->dblang])
+			  );
+			  
+			  ($this->cid) ? $db->update($this->ctTable, $data, "id='" . (int)$this->cid . "'") : $db->insert($this->ctTable, $data);
+			  $message = ($this->cid) ? MOD_DS_CATUPDATED : MOD_DS_CATADDED;
+			  
+			  ($db->affected()) ? $wojosec->writeLog($message, "", "no", "module") . $core->msgOk($message) : $core->msgAlert(_SYSTEM_PROCCESS);
+				 
+		  } else
+			  print $core->msgStatus();
+	  }
+	  
+	  /**
+	   * Android::getCategoryList()
+	   * 
+	   * @return
+	   */
+	  public function getCategoryList()
+	  {
+		  global $db;
+		  
+		  $sql = "SELECT *, "
+		  . "\n (SELECT COUNT(".$this->mTable.".cid) FROM ".$this->mTable." WHERE ".$this->mTable.".cid = ".$this->ctTable.".id) as total FROM " . $this->ctTable
+		  . "\n ORDER BY sorting";
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+	  }	
+	  	  
+	  /**
+	   * Android::sortCategories()
+	   * 
+	   * @return
+	   */
+	  public function sortCategories()
+	  {
+		  global $db;
+		  	  
+		  foreach ($_POST['node'] as $k => $v) {
+			  $p = $k + 1;
+			  $data['sorting'] = intval($p);
+			  $db->update($this->ctTable, $data, "id='" . (int)$v . "'");
+		  }
+	  }
+
+      /**
+       * Android::getPayments()
+       * 
+       * @param bool $from
+       * @return
+       */
+      public function getPayments($from = false)
+      {
+		  global $db, $core, $pager;
+		  
+		  require_once(WOJOLITE . "lib/class_paginate.php");
+
+          $pager = new Paginator();
+          $counter = countEntries($this->trTable);
+          $pager->items_total = $counter;
+          $pager->default_ipp = $core->perpage;
+          $pager->paginate();
+          
+          if ($counter == 0) {
+              $pager->limit = null;
+          }
+		  
+          $clause = "";
+
+		  if (isset($_GET['sort'])) {
+			  list($sort, $order) = explode("-", $_GET['sort']);
+			  $sort = sanitize($sort);
+			  $order = sanitize($order);
+			  if (in_array($sort, array("uid", "price", "pp", "created"))) {
+				  $ord = ($order == 'DESC') ? " DESC" : " ASC";
+				  $sorting = " t." . $sort . $ord;
+			  } else {
+				  $sorting = " t.created DESC";
+			  }
+		  } else {
+			  $sorting = " t.created DESC";
+		  }
+		  
+          if (isset($_POST['fromdate']) && $_POST['fromdate'] <> "" || isset($from) && $from != '') {
+              $enddate = date("Y-m-d");
+              $fromdate = (empty($from)) ? $_POST['fromdate'] : $from;
+              if (isset($_POST['enddate']) && $_POST['enddate'] <> "") {
+                  $enddate = $_POST['enddate'];
+              }
+              $clause .= " WHERE t.created BETWEEN '" . trim($fromdate) . "' AND '" . trim($enddate) . " 23:59:59'";
+          } 
+		  
+          $sql = "SELECT t.*, t.id as id, u.id as uid, u.username, p.id as digiid, p.title{$core->dblang},"
+		  . "\n DATE_FORMAT(t.created, '".$core->long_date."') as cdate"
+		  . "\n FROM " . $this->trTable . " as t"
+		  . "\n LEFT JOIN users as u ON u.id = t.uid" 
+		  . "\n LEFT JOIN " . $this->mTable . " as p ON p.id = t.pid" 
+		  . "\n " . $clause . " ORDER BY " . $sorting . $pager->limit;
+		   
+          $row = $db->fetch_all($sql);
+          
+		  return ($row) ? $row : 0;
+      }
+
+      /**
+       * Android::getPaymentFilter()
+       * 
+       * @return
+       */
+      public function getPaymentFilter()
+	  {
+		  $arr = array(
+				 'uid-ASC' => _USERNAME.' &uarr;',
+				 'uid-DESC' => _USERNAME.' &darr;',
+				 'price-ASC' => _TR_AMOUNT.' &uarr;',
+				 'price-DESC' => _TR_AMOUNT.' &darr;',
+				 'pp-ASC' => _TR_PROCESSOR.' &uarr;',
+				 'pp-DESC' => _TR_PROCESSOR.' &darr;',
+				 'date-ASC' => _TR_PAYDATE.' &uarr;',
+				 'date-DESC' => _TR_PAYDATE.' &darr;',
+		  );
+		  
+		  $filter = '';
+		  foreach ($arr as $key => $val) {
+				  if ($key == get('sort')) {
+					  $filter .= "<option selected=\"selected\" value=\"$key\">$val</option>\n";
+				  } else
+					  $filter .= "<option value=\"$key\">$val</option>\n";
+		  }
+		  unset($val);
+		  return $filter;
+	  }
+
+	  /**
+	   * Android::resendTransaction()
+	   * 
+	   * @param mixed $tid
+	   * @return
+	   */
+	  public function resendTransaction($tid)
+	  {
+		  global $db, $core;
+
+          $row = $db->first("SELECT t.*, t.id as id, p.title{$core->dblang} as atitle, u.email, CONCAT(u.fname,' ',u.lname) as name"
+		  . "\n FROM " . $this->trTable . " as t"
+		  . "\n LEFT JOIN users as u ON u.id = t.uid" 
+		  . "\n LEFT JOIN " . $this->mTable . " as p ON p.id = t.pid" 
+		  . "\n WHERE t.id = " . (int)$tid . "");
+		  
+		  if ($row) {
+			require_once(WOJOLITE . "lib/class_mailer.php");
+			$mailer = $mail->sendMail();	
+			
+			$newtime = time() + (1 * $this->utl_time * 60 * 60);
+			$link = SITEURL.'/modules/android/download.php?fileid=' . $row['token'];
+			$items = '
+			<table border="0" cellpadding="4" cellspacing="2" width"100%">
+			  <thead>
+				<tr>
+				  <td width="20"><strong>#</strong></td>
+				  <td><strong>' . MOD_DS_NAME . '</strong></td>
+				  <td><strong>' .MOD_DS_PRODPRICE . '</strong></td>
+				  <td><strong>' . MOD_DS_QTY . '</strong></td>
+				  <td><strong>' .MOD_DS_TOTPRICE . '</strong></td>
+				</tr>
+			  </thead>
+			  <tbody>
+				  <tr>
+					<td style="border-bottom-width:1px; border-bottom-color:#bbb; border-bottom-style:dashed">' . $row['id'] . '.</td>
+					<td style="border-bottom-width:1px; border-bottom-color:#bbb; border-bottom-style:dashed"><a href="' . $link . '">' . sanitize($row['atitle'],30,false) . '</a></td>
+					<td style="border-bottom-width:1px; border-bottom-color:#bbb; border-bottom-style:dashed">' . $core->formatMoney($row['price']) . '</td>
+					<td align="center" style="border-bottom-width:1px; border-bottom-color:#bbb; border-bottom-style:dashed">' . $row['item_qty'] . '</td>
+					<td align="right" style="border-bottom-width:1px; border-bottom-color:#bbb; border-bottom-style:dashed">' . $core->formatMoney($row['item_qty'] * $row['price']) . '</td>
+				  </tr>
+			  <tr>
+				<td colspan="4" align="right" valign="top"><strong style="color:#F00">' . MOD_DS_GTOTAL . ':</strong></td>
+				<td align="right" valign="top"><strong style="color:#F00">' . $core->formatMoney($row['item_qty'] * $row['price']) . '</strong></td>
+			  </tr>
+				</tbody>
+			</table>';
+						
+			$body = str_replace(array('[NAME]', '[ITEMS]', '[X]', '[SITENAME]', '[URL]'), 
+			array($row['name'], $items, $this->utl_time, $core->site_name, $core->site_url), $this->template);
+  
+			$message = Swift_Message::newInstance()
+					  ->setSubject(MOD_DS_R_SUBJECT . $core->site_name)
+					  ->setTo(array($row['email'] => $row['name']))
+					  ->setFrom(array($core->site_email => $core->site_name))
+					  ->setBody(cleanOut($body), 'text/html');
+					  
+			 if($mailer->send($message)) {
+				 $core->msgOk(MOD_DS_RSENT);
+				 $data['file_date'] = $newtime;
+				 $db->update($this->trTable, $data, "id = '".$tid."'");
+			 } else {
+				 $core->msgAlert(MOD_DS_RSENT_ERR);
+				 
+			 }
+		  }
+	  }
+
+      /**
+       * Android::getCartContent()
+       * 
+       * @param bool $sesid
+       * @return
+       */
+      public function getCartContent($sesid = false)
+      {
+          global $db, $core, $user;
+		  
+		  $uid = ($sesid) ? $sesid : $user->sesid;
+		  
+		  $sql = "SELECT c.*, p.id as pid, p.title{$core->dblang} as ptitle, p.price, COUNT(c.pid) as total" 
+		  . "\n FROM " . $this->xTable . " as c" 
+		  . "\n LEFT JOIN " . $this->mTable . " as p ON p.id = c.pid" 
+		  . "\n WHERE c.user_id = '" . $db->escape($uid) . "'" 
+		  . "\n GROUP BY c.pid ORDER BY c.id DESC";
+          $row = $db->fetch_all($sql);
+          
+          return ($row) ? $row : 0;
+      }
+
+      /**
+       * Android::getCartTotal()
+       * 
+       * @param bool $sesid
+       * @return
+       */
+      public function getCartTotal($sesid = false)
+      {
+          global $db, $user;
+		  
+		  $uid = ($sesid) ? $sesid : $user->sesid;
+		  
+		  $sql = "SELECT sum(c.price) as total, COUNT(c.pid) as titems" 
+		  . "\n FROM " . $this->xTable . " as c" 
+		  . "\n WHERE c.user_id = '" . $db->escape($uid) . "'"
+		  . "\n GROUP BY c.user_id";
+
+          $row = $db->first($sql);
+          
+          return ($row) ? $row : 0;
+      }
+
+      /**
+       * Android::getFreeDownload()
+       * 
+       * @param mixed $token
+       * @return
+       */
+      public function getFreeDownload($token)
+      {
+          global $db, $core;
+		  
+		  $id = sanitize($token);
+		  $id = $db->escape($token);
+		  
+          $sql = "SELECT * FROM " . $this->mTable
+		  . "\n WHERE token = '" .$id . "' AND active = '1' AND price = '0'";
+          $row = $db->first($sql);
+          
+          return ($row) ? $row : 0;
+      }
+
+      /**
+       * Android::getMembershipDownload()
+       * 
+       * @param mixed $token
+       * @return
+       */
+      public function getMembershipDownload($token)
+      {
+          global $db, $core;
+		  
+		  $id = sanitize($token);
+		  $id = $db->escape($token);
+		  
+          $sql = "SELECT * FROM " . $this->mTable
+		  . "\n WHERE token = '" .$id . "' AND active = '1' AND membership_id <> 0";
+          $row = $db->first($sql);
+          
+          return ($row) ? $row : 0;
+      }
+
+      /**
+       * Android::getPaidDownload()
+       * 
+       * @param mixed $token
+       * @return
+       */
+      public function getPaidDownload($token)
+      {
+          global $db, $core;
+		  
+		  $id = sanitize($token);
+		  $id = $db->escape($token);
+		  
+		  $row = $db->first("SELECT t.*, p.filename" 
+		  . " \n FROM " . $this->trTable . " as t" 
+		  . " \n LEFT JOIN " . $this->mTable . " as p ON t.pid = p.id" 
+		  . " \n WHERE t.token = '" . $db->escape($id) . "'" 
+		  . " \n AND t.status = '1' AND t.active = '1'" 
+		  . " \n AND p.active = '1'");
+          
+          return ($row) ? $row : 0;
+      }
+	  	  	  
+      /**
+       * Android::getGateways()
+       * 
+       * @return
+       */
+      public function getGateways()
+      {
+          global $db;
+		  
+          $sql = "SELECT * FROM gateways"
+		  . "\n WHERE active = '1'"
+		  . "\n ORDER BY name";
+          $row = $db->fetch_all($sql);
+          
+          return ($row) ? $row : 0;
+      }
+	  	  	  	  	  	  	  	  
+      /**
+       * Android::getMembershipList()
+       * 
+       * @param bool $memid
+       * @return
+       */
+      public function getMembershipList($memid = false)
+	  {
+		  global $db, $core;
+		  
+		  $sqldata = $db->fetch_all("SELECT id, title{$core->dblang} FROM memberships ORDER BY title{$core->dblang}");
+		  
+		  if($memid) {
+			$arr = explode(",",$memid);
+			reset($arr);
+		  }
+		  $data = '';
+		  if($sqldata) {
+			  $data .= '<select name="membership_id[]" size="6" multiple="multiple" class="select" style="width:250px">';
+			  $data .= "<option value=\"0\">" . MOD_DS_NOMEMREQ . "</option>\n";
+			  foreach ($sqldata as $val) {
+				  if($memid) {
+				  $selected =  (in_array($val['id'], $arr))  ? " selected=\"selected\"" : "";
+				  } else {
+					$selected = null;
+				  }
+					  $data .= "<option $selected value=\"" . $val['id'] . "\">" . $val['title'.$core->dblang] . "</option>\n";
+	
+			  }
+			  unset($val);
+			  $data .= "</select>";
+			  $data .= "&nbsp;&nbsp;";
+			  $data .= tooltip(MOD_DS_MEMBERSHIP_T);
+		  
+          return $data;
+		  } 
+      }
+	  
+      /**
+       * Android::verifyTxnId()
+       * 
+       * @param mixed $txn_id
+       * @return
+       */
+      public function verifyTxnId($txn_id)
+      {
+          global $db;
+          
+          $sql = $db->query("SELECT id" 
+				. "\n FROM ".$this->trTable."" 
+				. "\n WHERE txn_id = '" . sanitize($txn_id) . "'" 
+				. "\n LIMIT 1");
+		  		
+          if ($db->numrows($sql) > 0)
+              return false;
+          else
+              return true;
+      }
+
+	  /**
+	   * Android::getErrorMsgs()
+	   * 
+	   * @return
+	   */
+	  public function getErrorMsgs()
+	  {
+		  $s = explode("msg=", $_SERVER['REQUEST_URI']);
+		  $v = count($s);
+	
+		  if ($v == 2)
+			  print '<a href="' . SITEURL . '/modules/android/getmsg.php?msg=' . $s[1] . '" rel="content-300-80" class="pirobox" title="Error" id="errid"></a>';
+	
+	  }
+	  	  
+      /**
+       * Android::readFile()
+       * 
+       * @param mixed $filename
+       * @param bool $retbytes
+       * @return
+       */
+      public function readFile($filename, $retbytes = true)
+      {
+          $chunksize = 1 * (1024 * 1024);
+          $buffer = '';
+          $cnt = 0;
+
+          $handle = fopen($filename, 'rb');
+          if ($handle === false) {
+              return false;
+          }
+          while (!feof($handle)) {
+              $buffer = fread($handle, $chunksize);
+              echo $buffer;
+              ob_flush();
+              flush();
+              if ($retbytes) {
+                  $cnt += strlen($buffer);
+              }
+          }
+          $status = fclose($handle);
+          if ($retbytes && $status) {
+              return $cnt;
+          }
+          return $status;
+
+      }
+
+      /**
+       * Android::fetchFile()
+       * 
+       * @param mixed $dirname
+       * @param mixed $fname
+       * @param mixed $file_path
+       * @return
+       */
+	  public function fetchFile($dirname, $fname, &$file_path)
+	  {
+		  $dir = opendir($dirname);
+		  
+		  while ($file = readdir($dir)) {
+			  if (empty($file_path) && $file != '.' && $file != '..') {
+				  if (is_dir($dirname . '/' . $file)) {
+					  $this->fetchFile($dirname . '/' . $file, $fname, $file_path);
+				  } else {
+					  if (file_exists($dirname . '/' . $fname)) {
+						  $file_path = $dirname . '/' . $fname;
+						  return;
+					  }
+				  }
+			  }
+		  }
+	  }
+  }
+?>
